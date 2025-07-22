@@ -1,0 +1,151 @@
+// src/pages/AllEmployeesPage.tsx
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import Fuse from 'fuse.js';
+import { SearchBar, Suggestion } from '../components/SearchBar';
+import type { Employee } from '../types';
+import styles from './AllEmployeesPage.module.css';
+import logo from '../assets/jpmorgan-logo.svg';
+import blankProfile from '../assets/blank-profile.svg';
+
+function useQueryParam(key: string): string {
+  return new URLSearchParams(useLocation().search).get(key) || '';
+}
+
+export default function AllEmployeesPage(): JSX.Element {
+  const navigate = useNavigate();
+  const filterQ = useQueryParam('q');
+  const [term, setTerm] = useState(filterQ);
+  const [isListView, setIsListView] = useState(false);
+
+  // Keep term in sync with URL
+  useEffect(() => {
+    setTerm(filterQ);
+  }, [filterQ]);
+
+  // Fetch all employees
+  const { data: allEmps = [], isLoading, error } = useQuery<Employee[], Error>({
+    queryKey: ['allEmployees'],
+    queryFn: async () => {
+      const res = await fetch('/api/employee/all');
+      if (!res.ok) throw new Error(res.statusText);
+      return (await res.json()) as Employee[];
+    }
+  });
+
+  // Build Fuse index for fuzzy search
+  const fuse = useMemo(() => {
+    return new Fuse(allEmps, {
+      keys: ['name', 'id'],
+      threshold: 0.3,
+      ignoreLocation: true,
+    });
+  }, [allEmps]);
+
+  // Apply fuzzy filter for display list
+  const filtered: Employee[] = useMemo(() => {
+    const q = filterQ.trim();
+    return q ? fuse.search(q).map(r => r.item) : allEmps;
+  }, [allEmps, filterQ, fuse]);
+
+  // Compute fuzzy suggestions
+  const suggestions: Suggestion[] = useMemo(() => {
+    const q = term.trim();
+    if (!q) return [];
+    return fuse.search(q).map(r => ({
+      id: r.item.id,
+      name: r.item.name,
+    }));
+  }, [term, fuse]);
+
+  // Handle search action
+  const handleSearch = (t: string) => {
+    const c = t.trim();
+    if (!c) return;
+    if (suggestions.some(s => s.id === c) || /^\d+$/.test(c)) {
+      navigate(`/employee/${c}`);
+    } else {
+      navigate(`/all?q=${encodeURIComponent(c)}`);
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <Link to="/">
+          <img src={logo} alt="JPMorgan Chase" className={styles.logoSmall} />
+        </Link>
+        <h1 className={styles.title}>All Employees</h1>
+      </header>
+
+      {/* Controls: Search bar + Grid/List toggle */}
+      <div className={styles.controls}>
+        <div className={styles.searchWrap}>
+          <SearchBar
+            value={term}
+            onInputChange={setTerm}
+            onSearch={handleSearch}
+            suggestions={suggestions}
+          />
+        </div>
+        <div className={styles.viewToggle}>
+          <label className={styles.switch}>
+            <input
+              type="checkbox"
+              checked={isListView}
+              onChange={() => setIsListView(v => !v)}
+            />
+            <span className={styles.slider} />
+          </label>
+          <span className={styles.toggleLabel}>
+            {isListView ? 'List View' : 'Grid View'}
+          </span>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className={styles.spinner}>Loading…</div>
+      ) : error ? (
+        <div className={styles.error}>Error: {error.message}</div>
+      ) : isListView ? (
+        <ul className={styles.listView}>
+          {filtered.map(emp => (
+            <li
+              key={emp.id}
+              className={styles.listItem}
+              onClick={() => navigate(`/employee/${emp.id}`)}
+            >
+              <img src={blankProfile} alt="" className={styles.avatar} />
+              <div className={styles.listContent}>
+                <h2 className={styles.name}>{emp.name}</h2>
+                <p className={styles.job}>{emp.title}</p>
+                <p className={styles.sid}>SID: {emp.id}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className={styles.grid}>
+          {filtered.length === 0 && (
+            <p className={styles.noResults}>No matches found.</p>
+          )}
+          {filtered.map(emp => (
+            <div
+              key={emp.id}
+              className={styles.card}
+              onClick={() => navigate(`/employee/${emp.id}`)}
+            >
+              <img src={blankProfile} alt="" className={styles.avatar} />
+              <div className={styles.cardContent}>
+                <h2 className={styles.name}>{emp.name}</h2>
+                <p className={styles.job}>{emp.title}</p>
+                <p className={styles.sid}>SID: {emp.id}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
