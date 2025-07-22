@@ -1,0 +1,31 @@
+ERROR in ./src/pages/AllEmployeesPage.tsx:26:61
+TS2304: Cannot find name 'Employee'.
+    24 |   }, [filterQ]);
+    25 |
+  > 26 |   const { data: allEmps = [], isLoading, error } = useQuery<Employee[], Error>({
+       |                                                             ^^^^^^^^
+    27 |     queryKey: ['allEmployees'],
+    28 |     queryFn: async () => {
+    29 |       const res = await fetch('/api/employee/all');
+
+ERROR in ./src/pages/AllEmployeesPage.tsx:31:36
+TS2304: Cannot find name 'Employee'.
+    29 |       const res = await fetch('/api/employee/all');
+    30 |       if (!res.ok) throw new Error(res.statusText);
+  > 31 |       return (await res.json()) as Employee[];
+       |                                    ^^^^^^^^
+    32 |     }
+    33 |   });
+    34 |
+
+ERROR in ./src/pages/AllEmployeesPage.tsx:45:19
+TS2304: Cannot find name 'Employee'.
+    43 |   );
+    44 |
+  > 45 |   const filtered: Employee[] = useMemo(() => {
+       |                   ^^^^^^^^
+    46 |     const q = filterQ.trim();
+    47 |     return q ? fuse.search(q).map(r => r.item) : allEmps;
+    48 |   }, [allEmps, filterQ, fuse]);
+
+Found 3 errors in 993 ms
