@@ -1,0 +1,379 @@
+// src/pages/HomePage.tsx
+import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import Fuse from 'fuse.js';
+import { SearchBar, Suggestion } from '../components/SearchBar';
+import type { Employee } from '../types';
+import styles from './HomePage.module.css';
+import logo from '../assets/jpmorgan-logo.svg';
+
+export default function HomePage(): JSX.Element {
+  const [term, setTerm] = useState('');
+  const navigate = useNavigate();
+
+  // 1) Fetch all employees
+  const { data: allEmps = [], isLoading, error } = useQuery<Employee[], Error>({
+    queryKey: ['employees'],
+    queryFn: async () => {
+      const res = await fetch('/api/employee/all');
+      if (!res.ok) throw new Error(res.statusText);
+      return (await res.json()) as Employee[];
+    }
+  });
+
+  // 2) Build Fuse index
+  const fuse = useMemo(
+    () =>
+      new Fuse(allEmps, {
+        keys: ['name', 'id'],
+        threshold: 0.3,
+        ignoreLocation: true
+      }),
+    [allEmps]
+  );
+
+  // 3) Compute fuzzy suggestions
+  const suggestions: Suggestion[] = useMemo(() => {
+    const q = term.trim();
+    if (!q) return [];
+    return fuse.search(q).map(r => ({
+      id: r.item.id,
+      name: r.item.name
+    }));
+  }, [term, fuse]);
+
+  // 4) Auto‑navigate if only one suggestion
+  useEffect(() => {
+    if (suggestions.length === 1) {
+      navigate(`/employee/${suggestions[0].id}`);
+    }
+  }, [suggestions, navigate]);
+
+  // 5) Handle search action
+  const handleSearch = (t: string) => {
+    const cleaned = t.trim();
+    if (!cleaned) return;
+    if (suggestions.some(s => s.id === cleaned) || /^\d+$/.test(cleaned)) {
+      navigate(`/employee/${cleaned}`);
+    } else {
+      navigate(`/all?q=${encodeURIComponent(cleaned)}`);
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.homeLogoContainer}>
+        <img src={logo} alt="JPMorgan Chase" className={styles.homeLogo} />
+      </div>
+      <div className={styles.searchWrap}>
+        <SearchBar
+          value={term}
+          onInputChange={setTerm}
+          onSearch={handleSearch}
+          suggestions={suggestions}
+        />
+      </div>
+      {isLoading ? (
+        <div className={styles.spinner}>Loading…</div>
+      ) : error ? (
+        <div className={styles.error}>Error: {error.message}</div>
+      ) : (
+        <button
+          className={styles.viewAllButton}
+          onClick={() => navigate('/all')}
+        >
+          View all {allEmps.length} employees
+        </button>
+      )}
+    </div>
+  );
+}
+_________________________
+
+// src/pages/AllEmployeesPage.tsx
+import React, { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import Fuse from 'fuse.js';
+import { SearchBar, Suggestion } from '../components/SearchBar';
+import type { Employee } from '../types';
+import styles from './AllEmployeesPage.module.css';
+import logo from '../assets/jpmorgan-logo.svg';
+import blankProfile from '../assets/blank-profile.svg';
+
+function useQueryParam(key: string): string {
+  return new URLSearchParams(useLocation().search).get(key) || '';
+}
+
+export default function AllEmployeesPage(): JSX.Element {
+  const navigate = useNavigate();
+  const filterQ = useQueryParam('q');
+  const [term, setTerm] = useState(filterQ);
+  const [isListView, setIsListView] = useState(false);
+
+  useEffect(() => {
+    setTerm(filterQ);
+  }, [filterQ]);
+
+  const { data: allEmps = [], isLoading, error } = useQuery<Employee[], Error>({
+    queryKey: ['allEmployees'],
+    queryFn: async () => {
+      const res = await fetch('/api/employee/all');
+      if (!res.ok) throw new Error(res.statusText);
+      return (await res.json()) as Employee[];
+    }
+  });
+
+  const fuse = useMemo(
+    () =>
+      new Fuse(allEmps, {
+        keys: ['name', 'id'],
+        threshold: 0.3,
+        ignoreLocation: true
+      }),
+    [allEmps]
+  );
+
+  const filtered: Employee[] = useMemo(() => {
+    const q = filterQ.trim();
+    return q ? fuse.search(q).map(r => r.item) : allEmps;
+  }, [allEmps, filterQ, fuse]);
+
+  const suggestions: Suggestion[] = useMemo(() => {
+    const q = term.trim();
+    if (!q) return [];
+    return fuse.search(q).map(r => ({
+      id: r.item.id,
+      name: r.item.name
+    }));
+  }, [term, fuse]);
+
+  useEffect(() => {
+    if (suggestions.length === 1) {
+      navigate(`/employee/${suggestions[0].id}`);
+    }
+  }, [suggestions, navigate]);
+
+  const handleSearch = (t: string) => {
+    const c = t.trim();
+    if (!c) return;
+    if (suggestions.some(s => s.id === c) || /^\d+$/.test(c)) {
+      navigate(`/employee/${c}`);
+    } else {
+      navigate(`/all?q=${encodeURIComponent(c)}`);
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <Link to="/">
+          <img src={logo} alt="JPMorgan Chase" className={styles.logoSmall} />
+        </Link>
+        <h1 className={styles.title}>All Employees</h1>
+      </header>
+
+      <div className={styles.controls}>
+        <div className={styles.searchWrap}>
+          <SearchBar
+            value={term}
+            onInputChange={setTerm}
+            onSearch={handleSearch}
+            suggestions={suggestions}
+          />
+        </div>
+        <div className={styles.viewToggle}>
+          <label className={styles.switch}>
+            <input
+              type="checkbox"
+              checked={isListView}
+              onChange={() => setIsListView(v => !v)}
+            />
+            <span className={styles.slider} />
+          </label>
+          <span className={styles.toggleLabel}>
+            {isListView ? 'List View' : 'Grid View'}
+          </span>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className={styles.spinner}>Loading…</div>
+      ) : error ? (
+        <div className={styles.error}>Error: {error.message}</div>
+      ) : isListView ? (
+        <ul className={styles.listView}>
+          {filtered.map(emp => (
+            <li
+              key={emp.id}
+              className={styles.listItem}
+              onClick={() => navigate(`/employee/${emp.id}`)}
+            >
+              <img src={blankProfile} alt="" className={styles.avatar} />
+              <div className={styles.listContent}>
+                <h2 className={styles.name}>{emp.name}</h2>
+                <p className={styles.job}>{emp.title}</p>
+                <p className={styles.sid}>SID: {emp.id}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className={styles.grid}>
+          {filtered.length === 0 && (
+            <p className={styles.noResults}>No matches found.</p>
+          )}
+          {filtered.map(emp => (
+            <div
+              key={emp.id}
+              className={styles.card}
+              onClick={() => navigate(`/employee/${emp.id}`)}
+            >
+              <img src={blankProfile} alt="" className={styles.avatar} />
+              <div className={styles.cardContent}>
+                <h2 className={styles.name}>{emp.name}</h2>
+                <p className={styles.job}>{emp.title}</p>
+                <p className={styles.sid}>SID: {emp.id}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+____________________
+
+// src/pages/EmployeeDetailPage.tsx
+import React, { useState, useEffect, useMemo } from 'react';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import Fuse from 'fuse.js';
+import { SearchBar, Suggestion } from '../components/SearchBar';
+import type { Employee } from '../types';
+import styles from './EmployeeDetailPage.module.css';
+import logo from '../assets/jpmorgan-logo.svg';
+import blankProfile from '../assets/blank-profile.svg';
+
+export default function EmployeeDetailPage(): JSX.Element {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [term, setTerm] = useState('');
+
+  useEffect(() => {
+    const q = new URLSearchParams(location.search).get('q') || '';
+    setTerm(q);
+  }, [location.search]);
+
+  const { data: empArr = [], isLoading, error } = useQuery<Employee[], Error>({
+    queryKey: ['employee', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const res = await fetch(`/api/employee/${encodeURIComponent(id!)}`);
+      if (!res.ok) return [];
+      const body = (await res.json()) as Employee | Employee[];
+      return Array.isArray(body) ? body : [body];
+    }
+  });
+  const employee = empArr[0] || null;
+
+  const { data: allEmps = [] } = useQuery<Employee[], Error>({
+    queryKey: ['employees'],
+    queryFn: async () => {
+      const res = await fetch('/api/employee/all');
+      if (!res.ok) throw new Error(res.statusText);
+      return (await res.json()) as Employee[];
+    }
+  });
+
+  const fuse = useMemo(
+    () =>
+      new Fuse(allEmps, {
+        keys: ['name', 'id'],
+        threshold: 0.3,
+        ignoreLocation: true
+      }),
+    [allEmps]
+  );
+
+  const suggestions: Suggestion[] = useMemo(() => {
+    const q = term.trim();
+    if (!q) return [];
+    return fuse.search(q).map(r => ({
+      id: r.item.id,
+      name: r.item.name
+    }));
+  }, [term, fuse]);
+
+  useEffect(() => {
+    if (suggestions.length === 1) {
+      navigate(`/employee/${suggestions[0].id}`);
+    }
+  }, [suggestions, navigate]);
+
+  const handleSearch = (t: string) => {
+    const c = t.trim();
+    if (!c) return;
+    if (suggestions.some(s => s.id === c) || /^\d+$/.test(c)) {
+      navigate(`/employee/${c}`);
+    } else {
+      navigate(`/all?q=${encodeURIComponent(c)}`);
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <Link to="/">
+          <img src={logo} alt="JPMorgan Chase" className={styles.logoSmall} />
+        </Link>
+        <SearchBar
+          value={term}
+          onInputChange={setTerm}
+          onSearch={handleSearch}
+          suggestions={suggestions}
+        />
+      </header>
+
+      {isLoading ? (
+        <div className={styles.spinner}>Loading…</div>
+      ) : error ? (
+        <div className={styles.error}>Error: {error.message}</div>
+      ) : !employee ? (
+        <div className={styles.notFound}>No such employee.</div>
+      ) : (
+        <div className={styles.card}>
+          <img src={blankProfile} alt="" className={styles.avatarDetail} />
+          <div className={styles.info}>
+            <h2 className={styles.name}>
+              {employee.name} <small>({employee.pronouns})</small>
+            </h2>
+            <p><strong>SID:</strong> {employee.id}</p>
+            <p><strong>Title:</strong> {employee.title}</p>
+            <p>
+              <strong>Email:</strong>{' '}
+              <a href={`mailto:${employee.email}`}>{employee.email}</a>
+            </p>
+            <p><strong>Phone:</strong> {employee.cellPhone}</p>
+            <p><strong>Address:</strong> {employee.address}</p>
+            <p><strong>Manager SID:</strong> {employee.managerId}</p>
+            <p><strong>Hobbies:</strong> {employee.hobbies.join(', ')}</p>
+            <p><strong>Favorite Color:</strong> {employee.favoriteColor}</p>
+            <p><strong>Birthdate:</strong> {employee.birthdate}</p>
+            <p><strong>Education:</strong> {employee.education}</p>
+            <p><strong>Team:</strong> {employee.team}</p>
+          </div>
+          <section className={styles.org}>
+            <h3>Organizational Data</h3>
+            <p><strong>Department:</strong> {employee.organizationalData.department}</p>
+            <p><strong>Office Location:</strong> {employee.organizationalData.officeLocation}</p>
+            <p><strong>Years at Company:</strong> {employee.organizationalData.yearsAtCompany}</p>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
